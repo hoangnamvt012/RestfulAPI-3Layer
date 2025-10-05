@@ -1,31 +1,39 @@
 from sqlalchemy.orm import Session
-from dto.employee_entity import Employee
-from typing import List, Optional
+from typing import Optional
+from dal.base_repository import BaseRepository
+from dto.employee_entity import Employee # Model Entity
+from typing import Dict, Any 
 
-class EmployeeRepository:
-    """Chỉ xử lý Persistence Logic (Truy vấn DB)"""
+class EmployeeRepository(BaseRepository[Employee]):
+    """Repository chuyên biệt cho Employee, kế thừa logic CRUD chung."""
+
     def __init__(self, db: Session):
-        self.db = db
+        # Truyền Session và Model Entity vào BaseRepository
+        super().__init__(db, Employee)
 
-    def get_count(self) -> int:
-        """Hàm hỗ trợ Service: Đếm tổng số bản ghi (cho tạo code)."""
-        return self.db.query(Employee).count()
+    # ----------------------------------------------------
+    # CHỈ CÁC HÀM ĐẶC THÙ (Specialized Methods)
+    # ----------------------------------------------------
+    
+    def get_by_cccd(self, cccd: str) -> Optional[Employee]:
+        """Tìm bản ghi theo CCCD (Validation)"""
+        return self.db.query(self.model).filter(self.model.cccd == cccd).first()
 
-    def get_all(self) -> List[Employee]:
-        return self.db.query(Employee).all()
+    def count_by_department(self, department_id: int) -> int:
+        """Đếm nhân viên trong phòng ban (Validation khi xóa Department)"""
+        return self.db.query(self.model).filter(self.model.department_id == department_id).count()
 
-    def get_by_id(self, employee_id: int) -> Optional[Employee]:
-        return self.db.query(Employee).filter(Employee.id == employee_id).first()
-
-    def create(self, code: str, name: str, position: str, department_id: int) -> Employee:
-        """Nhận code Nghiệp vụ từ Service."""
-        employee = Employee(
-            code=code, 
-            name=name, 
-            position=position, 
-            department_id=department_id
-        )
+    def create(self, **kwargs) -> Employee:
+        """Sử dụng **kwargs để tạo Entity linh hoạt hơn."""
+        employee = Employee(**kwargs)
         self.db.add(employee)
-        self.db.commit()
-        self.db.refresh(employee)
         return employee
+
+    # Hàm update linh hoạt đã được giữ lại từ phiên bản trước
+    def update(self, employee: Employee, update_data: Dict[str, Any]) -> Employee:
+        """Cập nhật các trường được chỉ định trong update_data."""
+        for field, value in update_data.items():
+            setattr(employee, field, value)
+        return employee
+
+    # LƯU Ý: Các hàm get_by_id, get_all, delete đã được BaseRepository xử lý

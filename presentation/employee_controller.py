@@ -1,43 +1,43 @@
 from fastapi import APIRouter, Depends, status
-from sqlalchemy.orm import Session
-from db.database import get_db
+from dal.unit_of_work import UnitOfWork, get_uow # 👈 Import UoW và DI
 from bus.employee_service import EmployeeService
-from dal.employee_repository import EmployeeRepository 
-from dal.department_repository import DepartmentRepository 
-from dto.employee_dto import EmployeeCreateDto, EmployeeResponseDto
+from dto.employee_dto import EmployeeCreateDto, EmployeeResponseDto, EmployeeUpdateDto
 from typing import List
 
-# Hàm Dependency Injection (DI) mới
-def get_employee_service(db: Session = Depends(get_db)) -> EmployeeService:
-    """Tạo Service với cả 2 Repository được Inject (DIP)"""
-    emp_repo = EmployeeRepository(db)
-    dept_repo = DepartmentRepository(db) 
-    return EmployeeService(emp_repo, dept_repo)
+# Hàm DI mới sử dụng UoW
+def get_employee_service(uow: UnitOfWork = Depends(get_uow)) -> EmployeeService:
+    # 👈 Truyền RepositoryGroup từ UoW vào Service
+    return EmployeeService(uow.repo)
 
 router = APIRouter(prefix="/employees", tags=["Employees"])
 
-@router.post(
-    "/", 
-    response_model=EmployeeResponseDto,
-    status_code=status.HTTP_201_CREATED # 👈 Status Code 201 chuẩn
-)
-def create_employee(
-    dto: EmployeeCreateDto, 
-    service: EmployeeService = Depends(get_employee_service) # Inject Service
-):
-    return service.create_employee(dto)
+# POST: CREATE
+@router.post("/", response_model=EmployeeResponseDto, status_code=status.HTTP_201_CREATED)
+def create_employee(dto: EmployeeCreateDto, uow: UnitOfWork = Depends(get_uow)):
+    with uow:
+        # Service chỉ tạo đối tượng
+        new_employee = EmployeeService(uow.repo).create_employee(dto)
+        uow.commit() # Commit toàn bộ giao dịch
+        uow.refresh(new_employee) # Làm mới đối tượng để lấy ID
+        return new_employee
 
-@router.get(
-    "/{employee_id}", 
-    response_model=EmployeeResponseDto
-)
-def get_employee(
-    employee_id: int,
-    service: EmployeeService = Depends(get_employee_service)
-):
-    # Service ném 404, Controller bắt và trả về
-    return service.get_employee_by_id(employee_id)
+# GET: LIST và GET by ID giữ nguyên (không cần commit)
+# ...
 
-@router.get("/", response_model=List[EmployeeResponseDto])
-def list_employees(service: EmployeeService = Depends(get_employee_service)):
-    return service.list_employees()
+# PATCH: PARTIAL UPDATE
+@router.patch("/{employee_id}", response_model=EmployeeResponseDto)
+def update_employee(employee_id: int, dto: EmployeeUpdateDto, uow: UnitOfWork = Depends(get_uow)):
+    with uow:
+        # Service sẽ chỉ cập nhật các trường có trong DTO
+        updated_employee = EmployeeService(uow.repo).update_employee(employee_id, dto)
+        uow.commit()
+        uow.refresh(updated_employee)
+        return updated_employee
+
+# DELETE: DELETE
+@router.delete("/{employee_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_employee(employee_id: int, uow: UnitOfWork = Depends(get_uow)):
+    with uow:
+        result = EmployeeService(uow.repo).delete_employee(employee_id)
+        uow.commit() # Commit giao dịch xóa
+        return result

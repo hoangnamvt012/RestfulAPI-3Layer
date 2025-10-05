@@ -1,29 +1,36 @@
 from sqlalchemy.orm import Session
-from dto.department_entity import Department
-from typing import List, Optional
+from typing import Optional
+from dal.base_repository import BaseRepository
+from dto.department_entity import Department # Model Entity
 
-class DepartmentRepository:
-    """Chỉ xử lý Persistence Logic (Truy vấn DB)"""
+# Dùng Dict cho hàm update linh hoạt hơn
+from typing import Dict, Any 
+
+class DepartmentRepository(BaseRepository[Department]):
+    """Repository chuyên biệt cho Department, kế thừa logic CRUD chung."""
+    
     def __init__(self, db: Session):
-        self.db = db
-
-    def get_count(self) -> int:
-        """Hàm hỗ trợ Service: Đếm tổng số bản ghi (cho tạo code)."""
-        return self.db.query(Department).count()
-
-    def get_all(self) -> List[Department]:
-        return self.db.query(Department).all()
-
-    def get_by_id(self, department_id: int) -> Optional[Department]:
-        return self.db.query(Department).filter(Department.id == department_id).first()
+        # Truyền Session và Model Entity vào BaseRepository
+        super().__init__(db, Department) 
     
+    # ----------------------------------------------------
+    # CHỈ CÁC HÀM ĐẶC THÙ (Specialized Methods)
+    # ----------------------------------------------------
+
     def get_by_name(self, name: str) -> Optional[Department]:
-        return self.db.query(Department).filter(Department.name == name).first()
-    
-    def create(self, code: str, name: str) -> Department:
-        """Nhận code Nghiệp vụ từ Service."""
-        department = Department(code=code, name=name)
+        return self.db.query(self.model).filter(self.model.name == name).first()
+
+    def create(self, **kwargs) -> Department:
+        """Sử dụng **kwargs để tạo Entity linh hoạt hơn."""
+        department = Department(**kwargs)
         self.db.add(department)
-        self.db.commit()
-        self.db.refresh(department)
         return department
+    
+    # Cải thiện: Hàm update linh hoạt
+    def update(self, department: Department, update_data: Dict[str, Any]) -> Department:
+        """Cập nhật các trường được chỉ định trong update_data."""
+        for field, value in update_data.items():
+            setattr(department, field, value)
+        return department
+
+    # LƯU Ý: Các hàm get_by_id, get_all, delete đã được BaseRepository xử lý

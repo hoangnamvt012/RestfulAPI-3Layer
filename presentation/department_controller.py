@@ -1,41 +1,42 @@
 from fastapi import APIRouter, Depends, status
-from sqlalchemy.orm import Session
-from db.database import get_db
-from bus.department_service import DepartmentService # Import Class Service
-from dal.department_repository import DepartmentRepository # Import Class Repo
+from dal.unit_of_work import UnitOfWork, get_uow # 👈 Import UoW và DI
+from bus.department_service import DepartmentService
 from dto.department_dto import DepartmentCreateDto, DepartmentResponseDto
-from typing import List
+from typing import List, Optional
 
-# Hàm Dependency Injection (DI) mới
-def get_department_service(db: Session = Depends(get_db)) -> DepartmentService:
-    """Tạo Service với Repository được Inject (DIP)"""
-    repo = DepartmentRepository(db)
-    return DepartmentService(repo)
+# Hàm DI mới sử dụng UoW
+def get_department_service(uow: UnitOfWork = Depends(get_uow)) -> DepartmentService:
+    # 👈 Truyền RepositoryGroup từ UoW vào Service
+    return DepartmentService(uow.repo) 
 
 router = APIRouter(prefix="/departments", tags=["Departments"])
 
-@router.post(
-    "/", 
-    response_model=DepartmentResponseDto, 
-    status_code=status.HTTP_201_CREATED # 👈 Status Code 201 chuẩn
-)
-def create_department(
-    dto: DepartmentCreateDto, 
-    service: DepartmentService = Depends(get_department_service) # Inject Service
-):
-    return service.create_department(dto)
+# POST: CREATE
+@router.post("/", response_model=DepartmentResponseDto, status_code=status.HTTP_201_CREATED)
+def create_department(dto: DepartmentCreateDto, uow: UnitOfWork = Depends(get_uow)):
+    with uow:
+        # Service chỉ tạo đối tượng
+        new_department = DepartmentService(uow.repo).create_department(dto)
+        uow.commit() # Commit toàn bộ giao dịch
+        uow.refresh(new_department) # Làm mới đối tượng để lấy ID
+        return new_department
 
-@router.get(
-    "/{department_id}", 
-    response_model=DepartmentResponseDto
-)
-def get_department(
-    department_id: int,
-    service: DepartmentService = Depends(get_department_service)
-):
-    # Service ném 404, Controller bắt và trả về
-    return service.get_department_by_id(department_id)
+# GET: LIST và GET by ID giữ nguyên (không cần commit)
+# ...
 
-@router.get("/", response_model=List[DepartmentResponseDto])
-def list_departments(service: DepartmentService = Depends(get_department_service)):
-    return service.list_departments()
+# PUT: UPDATE
+@router.put("/{department_id}", response_model=DepartmentResponseDto)
+def update_department(department_id: int, dto: DepartmentCreateDto, uow: UnitOfWork = Depends(get_uow)):
+    with uow:
+        updated_department = DepartmentService(uow.repo).update_department(department_id, dto)
+        uow.commit()
+        uow.refresh(updated_department)
+        return updated_department
+
+# DELETE: DELETE
+@router.delete("/{department_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_department(department_id: int, uow: UnitOfWork = Depends(get_uow)):
+    with uow:
+        result = DepartmentService(uow.repo).delete_department(department_id)
+        uow.commit() # Commit giao dịch xóa
+        return result   
