@@ -1,43 +1,60 @@
-from fastapi import APIRouter, Depends, status
-from dal.unit_of_work import UnitOfWork, get_uow # 👈 Import UoW và DI
-from bus.employee_service import EmployeeService
-from dto.employee_dto import EmployeeCreateDto, EmployeeResponseDto, EmployeeUpdateDto
+# File: presentation/employee_controller.py
+
+from fastapi import APIRouter, Depends, Query, status, HTTPException
+from dal.unit_of_work import UnitOfWork, get_uow
+# Import từ thư mục bus:
+from bus.employee_service import EmployeeService 
+# Import từ thư mục dto:
+from dto.employee_dto import EmployeeCreateDto, EmployeeResponseDto 
 from typing import List
+from exceptions import APIException
 
-# Hàm DI mới sử dụng UoW
-def get_employee_service(uow: UnitOfWork = Depends(get_uow)) -> EmployeeService:
-    # 👈 Truyền RepositoryGroup từ UoW vào Service
-    return EmployeeService(uow.repo)
+router = APIRouter()
 
-router = APIRouter(prefix="/employees", tags=["Employees"])
+# [R] GET LIST (Paging)
+@router.get("/", response_model=List[EmployeeResponseDto])
+async def get_employees(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, le=100),
+    uow: UnitOfWork = Depends(get_uow)
+):
+    return EmployeeService(uow.repo).get_all(skip=skip, limit=limit)
 
-# POST: CREATE
+# [R] GET BY ID
+@router.get("/{employee_id}", response_model=EmployeeResponseDto)
+async def get_employee_by_id(employee_id: int, uow: UnitOfWork = Depends(get_uow)):
+    return EmployeeService(uow.repo).get_employee_by_id(employee_id)
+
+# [C] CREATE
 @router.post("/", response_model=EmployeeResponseDto, status_code=status.HTTP_201_CREATED)
-def create_employee(dto: EmployeeCreateDto, uow: UnitOfWork = Depends(get_uow)):
-    with uow:
-        # Service chỉ tạo đối tượng
+async def create_employee(dto: EmployeeCreateDto, uow: UnitOfWork = Depends(get_uow)):
+    try:
         new_employee = EmployeeService(uow.repo).create_employee(dto)
-        uow.commit() # Commit toàn bộ giao dịch
-        uow.refresh(new_employee) # Làm mới đối tượng để lấy ID
+        uow.commit() # COMMIT nếu thành công
         return new_employee
+    except APIException as e:
+        uow.rollback() # ROLLBACK nếu lỗi nghiệp vụ
+        raise e 
 
-# GET: LIST và GET by ID giữ nguyên (không cần commit)
-# ...
-
-# PATCH: PARTIAL UPDATE
-@router.patch("/{employee_id}", response_model=EmployeeResponseDto)
-def update_employee(employee_id: int, dto: EmployeeUpdateDto, uow: UnitOfWork = Depends(get_uow)):
-    with uow:
-        # Service sẽ chỉ cập nhật các trường có trong DTO
-        updated_employee = EmployeeService(uow.repo).update_employee(employee_id, dto)
-        uow.commit()
-        uow.refresh(updated_employee)
+# [U] UPDATE (Dùng PUT)
+@router.put("/{employee_id}", response_model=EmployeeResponseDto)
+async def update_employee(employee_id: int, dto: EmployeeCreateDto, uow: UnitOfWork = Depends(get_uow)):
+    update_data = dto.dict() 
+    try:
+        updated_employee = EmployeeService(uow.repo).update_employee(employee_id, update_data)
+        uow.commit() # COMMIT nếu thành công
         return updated_employee
+    except APIException as e:
+        uow.rollback() # ROLLBACK nếu lỗi nghiệp vụ
+        raise e 
 
-# DELETE: DELETE
+# [D] DELETE
 @router.delete("/{employee_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_employee(employee_id: int, uow: UnitOfWork = Depends(get_uow)):
-    with uow:
-        result = EmployeeService(uow.repo).delete_employee(employee_id)
-        uow.commit() # Commit giao dịch xóa
-        return result
+async def delete_employee(employee_id: int, uow: UnitOfWork = Depends(get_uow)):
+    try:
+        EmployeeService(uow.repo).delete_employee(employee_id)
+        uow.commit() # COMMIT nếu thành công
+        return None 
+    except APIException as e:
+        uow.rollback() # ROLLBACK nếu lỗi nghiệp vụ
+        raise e

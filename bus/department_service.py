@@ -1,50 +1,65 @@
-from fastapi import HTTPException, status
-from dal.unit_of_work import RepositoryGroup # Chỉ dùng RepoGroup để gợi ý kiểu dữ liệu
+# File: bus/department_service.py
+
+from typing import Dict, Any, List
+from dal.unit_of_work import RepositoryGroup # Import từ dal
+from datetime import datetime
+from exceptions import APIException
+from random import randint 
+# Giả định import DTOs từ thư mục dto:
+from dto.department_dto import DepartmentCreateDto 
 
 class DepartmentService:
     def __init__(self, uow: RepositoryGroup):
-        # Service giờ chỉ nhận RepositoryGroup (từ UoW)
         self.repo = uow 
         
-    # ... (_generate_department_code giữ nguyên)
+    def _generate_department_code(self):
+        date_part = datetime.now().strftime('%y%m%d')
+        random_part = randint(100, 999) 
+        return f"DEPT-{date_part}-{random_part}"
 
-    def create_department(self, dto):
-        # 1. Validation Rule: Tên phòng ban đã tồn tại
-        if self.repo.departments.get_by_name(dto.name):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Tên phòng ban '{dto.name}' đã tồn tại."
-            )
-        
-        department_code = self._generate_department_code() 
-        
-        return self.repo.departments.create(department_code, dto.name, dto.status) # Thêm status
+    # [R] GET BY ID
+    def get_department_by_id(self, department_id: int):
+        # Truy cập Department Repository qua RepositoryGroup
+        department = self.repo.department_repository.get_by_id(department_id) 
+        if not department:
+            raise APIException(4001, f"Department ID {department_id} not found.") 
+        return department
 
-    def update_department(self, department_id: int, dto):
-        department = self.get_department_by_id(department_id) # Kiểm tra 404
-        
-        # 1. Validation Rule: Tên mới có trùng với phòng ban khác không
-        if dto.name and self.repo.departments.get_by_name(dto.name) and dto.name != department.name:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Tên phòng ban '{dto.name}' đã tồn tại."
-            )
+    # [R] GET ALL (Hỗ trợ Paging)
+    def get_all(self, skip: int = 0, limit: int = 100):
+        return self.repo.department_repository.get_all(skip=skip, limit=limit)
 
-        # Cập nhật (Repo không commit)
-        return self.repo.departments.update(department, dto.name, dto.status)
+    # [C] CREATE
+    def create_department(self, dto: DepartmentCreateDto):
+        if self.repo.department_repository.get_by_name(dto.name):
+            raise APIException(4091, f"Tên phòng ban '{dto.name}' đã tồn tại.") 
         
+        data_for_repo: Dict[str, Any] = dto.dict()
+        data_for_repo['code'] = self._generate_department_code() 
+        
+        return self.repo.department_repository.create(**data_for_repo) 
+
+    # [U] UPDATE (Linh hoạt cho PATCH)
+    def update_department(self, department_id: int, update_data: Dict[str, Any]):
+        department = self.get_department_by_id(department_id)
+        
+        new_name = update_data.get('name')
+        
+        if (new_name and 
+            self.repo.department_repository.get_by_name(new_name) and 
+            new_name != department.name):
+            
+            raise APIException(4091, f"Tên phòng ban '{new_name}' đã tồn tại.")
+
+        return self.repo.department_repository.update(department, update_data)
+        
+    # [D] DELETE
     def delete_department(self, department_id: int):
-        department = self.get_department_by_id(department_id) # Kiểm tra 404
+        department = self.get_department_by_id(department_id)
 
-        # 1. Validation Rule: Không thể xóa Department đang có Employee
-        if self.repo.employees.count_by_department(department_id) > 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Không thể xóa phòng ban này vì vẫn còn nhân viên thuộc về nó."
-            )
+        # Truy cập Employee Repository qua RepositoryGroup để kiểm tra khóa ngoại
+        if self.repo.employee_repository.count_by_department(department_id) > 0:
+            raise APIException(4012, "Không thể xóa phòng ban này vì vẫn còn nhân viên thuộc về nó.")
         
-        self.repo.departments.delete(department)
-        # Giao dịch sẽ được commit/rollback bởi UoW
+        self.repo.department_repository.delete(department)
         return {"message": f"Department ID {department_id} deleted."}
-
-    # ... (get_department_by_id và list_departments giữ nguyên)

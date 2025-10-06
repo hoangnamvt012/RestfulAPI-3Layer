@@ -1,42 +1,64 @@
-from fastapi import APIRouter, Depends, status
-from dal.unit_of_work import UnitOfWork, get_uow # 👈 Import UoW và DI
+# File: presentation/department_controller.py
+
+from fastapi import APIRouter, Depends, Query, status, HTTPException
+from dal.unit_of_work import UnitOfWork, get_uow
+# Import từ thư mục bus:
 from bus.department_service import DepartmentService
-from dto.department_dto import DepartmentCreateDto, DepartmentResponseDto
-from typing import List, Optional
+# Import từ thư mục dto:
+from dto.department_dto import DepartmentCreateDto, DepartmentResponseDto 
+from typing import List
+from exceptions import APIException
 
-# Hàm DI mới sử dụng UoW
-def get_department_service(uow: UnitOfWork = Depends(get_uow)) -> DepartmentService:
-    # 👈 Truyền RepositoryGroup từ UoW vào Service
-    return DepartmentService(uow.repo) 
+router = APIRouter()
 
-router = APIRouter(prefix="/departments", tags=["Departments"])
+# [R] GET LIST (Paging)
+@router.get("/", response_model=List[DepartmentResponseDto])
+async def get_departments(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, le=100),
+    uow: UnitOfWork = Depends(get_uow)
+):
+    return DepartmentService(uow.repo).get_all(skip=skip, limit=limit)
 
-# POST: CREATE
+# [R] GET BY ID
+@router.get("/{department_id}", response_model=DepartmentResponseDto)
+async def get_department_by_id(department_id: int, uow: UnitOfWork = Depends(get_uow)):
+    return DepartmentService(uow.repo).get_department_by_id(department_id)
+
+# [C] CREATE
 @router.post("/", response_model=DepartmentResponseDto, status_code=status.HTTP_201_CREATED)
-def create_department(dto: DepartmentCreateDto, uow: UnitOfWork = Depends(get_uow)):
-    with uow:
-        # Service chỉ tạo đối tượng
+async def create_department(dto: DepartmentCreateDto, uow: UnitOfWork = Depends(get_uow)):
+    try:
         new_department = DepartmentService(uow.repo).create_department(dto)
-        uow.commit() # Commit toàn bộ giao dịch
-        uow.refresh(new_department) # Làm mới đối tượng để lấy ID
-        return new_department
-
-# GET: LIST và GET by ID giữ nguyên (không cần commit)
-# ...
-
-# PUT: UPDATE
-@router.put("/{department_id}", response_model=DepartmentResponseDto)
-def update_department(department_id: int, dto: DepartmentCreateDto, uow: UnitOfWork = Depends(get_uow)):
-    with uow:
-        updated_department = DepartmentService(uow.repo).update_department(department_id, dto)
         uow.commit()
-        uow.refresh(updated_department)
-        return updated_department
+        return new_department
+    except APIException as e:
+        uow.rollback()
+        raise e 
 
-# DELETE: DELETE
+# [U] UPDATE (Dùng PATCH)
+@router.patch("/{department_id}", response_model=DepartmentResponseDto)
+async def update_department(department_id: int, dto: DepartmentCreateDto, uow: UnitOfWork = Depends(get_uow)):
+    update_data = dto.dict(exclude_unset=True) 
+    
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields provided for update.")
+    
+    try:
+        updated_department = DepartmentService(uow.repo).update_department(department_id, update_data)
+        uow.commit()
+        return updated_department
+    except APIException as e:
+        uow.rollback()
+        raise e
+
+# [D] DELETE
 @router.delete("/{department_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_department(department_id: int, uow: UnitOfWork = Depends(get_uow)):
-    with uow:
-        result = DepartmentService(uow.repo).delete_department(department_id)
-        uow.commit() # Commit giao dịch xóa
-        return result   
+async def delete_department(department_id: int, uow: UnitOfWork = Depends(get_uow)):
+    try:
+        DepartmentService(uow.repo).delete_department(department_id)
+        uow.commit()
+        return None
+    except APIException as e:
+        uow.rollback()
+        raise e
