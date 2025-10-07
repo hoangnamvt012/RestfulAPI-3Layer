@@ -1,27 +1,31 @@
-# File: main.py
+# File: main.py (Đã sửa)
 
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
-from exceptions import APIException, ERROR_MAPPING
-# Cập nhật import Controllers từ thư mục presentation:
-from presentation import employee_controller, department_controller 
-# Cập nhật import UoW từ thư mục dal:
-from dal.unit_of_work import UnitOfWork, get_uow 
+# Cần import logic lỗi từ file exceptions.py
+from exceptions import APIException, ERROR_MAPPING 
+# Import router đã được quản lý version
+from api_router import api_router 
 
-app = FastAPI(title="COMPANY API")
+# Khởi tạo ứng dụng
+app = FastAPI(title="Company API") 
 
-# GLOBAL EXCEPTION HANDLER: Bắt APIException và ánh xạ sang HTTP Status
+# GLOBAL EXCEPTION HANDLER (Giả định logic này của bạn)
 @app.exception_handler(APIException)
 async def api_exception_handler(request: Request, exc: APIException):
-    """Bắt APIException từ Service, tra cứu mã HTTP Status và trả về lỗi."""
-    
-    http_status_code = ERROR_MAPPING.get(exc.error_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+    # Sử dụng ERROR_MAPPING để trả về status code và chi tiết lỗi chuẩn
+    error_detail = ERROR_MAPPING.get(exc.code, {"status_code": 500, "message": "Internal Server Error"})
     
     return JSONResponse(
-        status_code=http_status_code,
-        content={"detail": exc.detail, "error_code": exc.error_code}, 
+        status_code=error_detail["status_code"],
+        content={
+            "code": exc.code,
+            "message": exc.message 
+        },
     )
 
-# APPLICATION ROUTERS
-app.include_router(employee_controller.router, prefix="/employees", tags=["employees"])
-app.include_router(department_controller.router, prefix="/departments", tags=["departments"])
+# APPLICATION ROUTERS: Gắn router đã được quản lý version
+# main.py giờ đây không cần biết về /v1 hay /v2
+app.include_router(api_router) 
+
+# LƯU Ý: Nếu bạn có Dependency Injection (get_uow), chúng vẫn được giữ nguyên.

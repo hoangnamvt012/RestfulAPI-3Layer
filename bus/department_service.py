@@ -6,7 +6,7 @@ from datetime import datetime
 from exceptions import APIException
 from random import randint 
 # Giả định import DTOs từ thư mục dto:
-from dto.department_dto import DepartmentCreateDto 
+from dto.department_dto import DepartmentCreateUpdateDto, DepartmentResponseDto
 
 class DepartmentService:
     def __init__(self, uow: RepositoryGroup):
@@ -30,7 +30,7 @@ class DepartmentService:
         return self.repo.department_repository.get_all(skip=skip, limit=limit)
 
     # [C] CREATE
-    def create_department(self, dto: DepartmentCreateDto):
+    def create_department(self, dto: DepartmentCreateUpdateDto):
         if self.repo.department_repository.get_by_name(dto.name):
             raise APIException(4091, f"Tên phòng ban '{dto.name}' đã tồn tại.") 
         
@@ -40,7 +40,7 @@ class DepartmentService:
         return self.repo.department_repository.create(**data_for_repo) 
 
     # [U] UPDATE (Linh hoạt cho PATCH)
-    def update_department(self, department_id: int, update_data: Dict[str, Any]):
+    def update_department(self, department_id: int, dto: DepartmentCreateUpdateDto):
         department = self.get_department_by_id(department_id)
         
         new_name = update_data.get('name')
