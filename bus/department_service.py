@@ -19,7 +19,6 @@ class DepartmentService:
 
     # [R] GET BY ID
     def get_department_by_id(self, department_id: int):
-        # Truy cập Department Repository qua RepositoryGroup
         department = self.repo.department_repository.get_by_id(department_id) 
         if not department:
             raise APIException(4001, f"Department ID {department_id} not found.") 
@@ -27,23 +26,28 @@ class DepartmentService:
 
     # [R] GET ALL (Hỗ trợ Paging)
     def get_all(self, skip: int = 0, limit: int = 100):
-        return self.repo.department_repository.get_all(skip=skip, limit=limit)
+        items = self.repo.department_repository.get_all(skip=skip, limit=limit)
+        total_count = self.repo.department_repository.get_count()
+        return items, total_count
 
     # [C] CREATE
     def create_department(self, dto: DepartmentCreateUpdateDto):
         if self.repo.department_repository.get_by_name(dto.name):
             raise APIException(4091, f"Tên phòng ban '{dto.name}' đã tồn tại.") 
         
-        data_for_repo: Dict[str, Any] = dto.dict()
+        data_for_repo: Dict[str, Any] = dto.model_dump() # Dùng model_dump() cho create
         data_for_repo['code'] = self._generate_department_code() 
         
         return self.repo.department_repository.create(**data_for_repo) 
 
-    # [U] UPDATE (Linh hoạt cho PATCH)
+    # [U] UPDATE (Dùng PUT thay cho PATCH)
     def update_department(self, department_id: int, dto: DepartmentCreateUpdateDto):
         department = self.get_department_by_id(department_id)
         
-        new_name = update_data.get('name')
+        # SỬA LỖI: Chuyển DTO thành Dict (chỉ lấy các trường được set)
+        update_data: Dict[str, Any] = dto.model_dump(exclude_unset=True) 
+
+        new_name = update_data.get('name') 
         
         if (new_name and 
             self.repo.department_repository.get_by_name(new_name) and 
@@ -59,7 +63,9 @@ class DepartmentService:
 
         # Truy cập Employee Repository qua RepositoryGroup để kiểm tra khóa ngoại
         if self.repo.employee_repository.count_by_department(department_id) > 0:
-            raise APIException(4012, "Không thể xóa phòng ban này vì vẫn còn nhân viên thuộc về nó.")
-        
+            raise APIException(
+                4012, 
+                f"Không thể xóa Department '{department.name}'. Còn nhân viên thuộc phòng ban này."
+            )
+
         self.repo.department_repository.delete(department)
-        return {"message": f"Department ID {department_id} deleted."}
